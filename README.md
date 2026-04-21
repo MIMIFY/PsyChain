@@ -16,7 +16,7 @@ Existing psychological counseling datasets often suffer from monolithic client p
 
 ⏳ **Coming soon:**
 - Evaluation code for dialogue quality assessment
-- Generated counseling dataset PsyChainD (test)
+- Generated counseling dataset PsyChainD (Test)
 - Detailed usage instruction
 
 ## Contact
