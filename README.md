@@ -1,7 +1,7 @@
 # PsyChain: A Collaborative Chain-of-Agents Framework for Generating Personalized and Professional Counseling Dialogues
 
 <p align="center">
-  <img src="framework_PsyChain.pdf" alt="PsyChain Framework" width="80%">
+  <img src="framework_PsyChain.jpg" alt="PsyChain Framework" width="80%">
 </p>
 
 > 🎉 **Accepted at ACL Findings 2026**
