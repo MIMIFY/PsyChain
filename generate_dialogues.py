@@ -1,6 +1,5 @@
 import argparse
 import sys
-import logging
 from datetime import datetime
 import asyncio
 import os
@@ -9,14 +8,11 @@ from typing import List, Dict, Any, Optional
 from autogen_agentchat.agents import AssistantAgent, MessageFilterAgent, MessageFilterConfig, PerSourceFilter
 from autogen_agentchat.teams import DiGraphBuilder, GraphFlow
 from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
-from autogen_agentchat.ui import Console
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 from autogen_core.memory import ListMemory, MemoryContent, MemoryMimeType
 from autogen_core.model_context import BufferedChatCompletionContext
 from tqdm import tqdm
-import random
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 
@@ -35,10 +31,10 @@ def redirect_output(ARCHETYPE_EN, dir_path, item_id):
 
 
 
-model_qwen =  OpenAIChatCompletionClient(
-                model="qwen-",
-                api_key="",
-                base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+model_qwen3_32B =  OpenAIChatCompletionClient(
+                model="ENTER_MODEL_NAME",
+                api_key="ENTER_API_KEY",
+                base_url="ENTER_BASE_URL",
                 model_info= {
                     "vision": False,
                     "function_calling": True,
@@ -48,11 +44,24 @@ model_qwen =  OpenAIChatCompletionClient(
                     "multiple_system_messages": True}
             )
 
+
+model_qwenplus =  OpenAIChatCompletionClient(
+                model="ENTER_MODEL_NAME",
+                api_key="ENTER_API_KEY",
+                base_url="ENTER_BASE_URL",
+                model_info= {
+                    "vision": False,
+                    "function_calling": True,
+                    "json_output": False,
+                    "family": "unknown",
+                    "structured_output": True,
+                    "multiple_system_messages": True}
+            )
 
 model_deepseek = OpenAIChatCompletionClient(
-                model="deepseek-",
-                api_key="",
-                base_url="https://ark.cn-beijing.volces.com/api/v3",
+                model="ENTER_MODEL_NAME",
+                api_key="ENTER_API_KEY",
+                base_url="ENTER_BASE_URL",
                 model_info= {
                     "vision": False,
                     "function_calling": True,
@@ -63,35 +72,41 @@ model_deepseek = OpenAIChatCompletionClient(
             )
 
 
-async def init_memory_client(ARCHETYPE_EN: str, memory_instance: ListMemory):
-    txt_path = "/home/DataSets/Psy_Data/psy_knowledge/" + ARCHETYPE_EN +".txt"
-    with open(txt_path, 'r', encoding='utf-8') as file:
-        txt_content = file.read()
-    
-    await memory_instance.add(MemoryContent(
-        content= txt_content, 
-        mime_type=MemoryMimeType.TEXT
-    ))
+async def init_memory_client(ARCHETYPE_EN: str, memory_instance: ListMemory, knowledge_dir: str):
+    txt_path = os.path.join(knowledge_dir, ARCHETYPE_EN + ".txt")
+    if os.path.exists(txt_path):
+        with open(txt_path, 'r', encoding='utf-8') as file:
+            txt_content = file.read()
+        
+        await memory_instance.add(MemoryContent(
+            content= txt_content, 
+            mime_type=MemoryMimeType.TEXT
+        ))
+    else:
+        print(f"Knowledge file not found: {txt_path}, no memory will be added")
 
-async def init_memory_counselor(ARCHETYPE_EN: str, memory_instance: ListMemory):
+async def init_memory_counselor(ARCHETYPE_EN: str, memory_instance: ListMemory, knowledge_dir: str):
 
-    txt_path = "/home/DataSets/Psy_Data/psy_knowledge/" + ARCHETYPE_EN + "_Treatment.txt"
-    with open(txt_path, 'r', encoding='utf-8') as file:
-        txt_content = file.read()
-    
-    await memory_instance.add(MemoryContent(
-        content = txt_content, 
-        mime_type=MemoryMimeType.TEXT
-    ))
+    txt_path = os.path.join(knowledge_dir, ARCHETYPE_EN + "_Treatment.txt")
+    if os.path.exists(txt_path):
+        with open(txt_path, 'r', encoding='utf-8') as file:
+            txt_content = file.read()
+        
+        await memory_instance.add(MemoryContent(
+            content = txt_content, 
+            mime_type=MemoryMimeType.TEXT
+        ))
+    else:
+        print(f"Knowledge file not found: {txt_path}, no memory will be added")
 
-async def create_psychological_flow(ARCHETYPE_CN: str, ARCHETYPE_EN: str) -> GraphFlow:
+async def create_psychological_flow(ARCHETYPE_CN: str, ARCHETYPE_EN: str, knowledge_dir: str) -> GraphFlow:
 
 
     client_memory = ListMemory()
     treatment_memory = ListMemory()
 
-    await init_memory_client(ARCHETYPE_EN, client_memory)
-    await init_memory_counselor(ARCHETYPE_EN, treatment_memory)
+    await init_memory_client(ARCHETYPE_EN, client_memory, knowledge_dir)
+    await init_memory_counselor(ARCHETYPE_EN, treatment_memory, knowledge_dir)
 
 
     profiler_tamp = """
@@ -128,7 +143,7 @@ async def create_psychological_flow(ARCHETYPE_CN: str, ARCHETYPE_EN: str) -> Gra
 
     Client_Profiler = AssistantAgent(
                 name="Client_Profiler",
-                model_client = model_client,
+                model_client = model_qwen3_32B,
                 # model_context=BufferedChatCompletionContext(buffer_size=1),
                 tools=[],
                 system_message=profiler_tamp.replace('人格原型占位符型', ARCHETYPE_CN).replace('PLACEHOLDER', ARCHETYPE_EN),
@@ -180,7 +195,7 @@ async def create_psychological_flow(ARCHETYPE_CN: str, ARCHETYPE_EN: str) -> Gra
 
     Client_Speaker = AssistantAgent(
                 name="Client_Speaker",
-                model_client=model_client,
+                model_client=model_qwenplus,
                 model_context=BufferedChatCompletionContext(buffer_size=4),
                 memory=[client_memory],
                 system_message=client_speaker_tamp.replace('人格原型占位符型', ARCHETYPE_CN).replace('PLACEHOLDER', ARCHETYPE_EN),
@@ -192,7 +207,7 @@ async def create_psychological_flow(ARCHETYPE_CN: str, ARCHETYPE_EN: str) -> Gra
 
     Safety_Monitor = AssistantAgent(
                 name="Safety_Monitor",
-                model_client = model_client,
+                model_client = model_deepseek,
                 tools=[],
                 model_context=BufferedChatCompletionContext(buffer_size=2),
                 system_message="""
@@ -305,7 +320,7 @@ async def create_psychological_flow(ARCHETYPE_CN: str, ARCHETYPE_EN: str) -> Gra
 
     Counselor_Supervisor = AssistantAgent(
                 name="Counselor_Supervisor",
-                model_client = model_client,
+                model_client = model_deepseek,
                 model_context=BufferedChatCompletionContext(buffer_size=13),
                 tools=[],
                 memory=[treatment_memory],
@@ -319,7 +334,7 @@ async def create_psychological_flow(ARCHETYPE_CN: str, ARCHETYPE_EN: str) -> Gra
 
     Counselor_Speaker = AssistantAgent(
                 name="Counselor_Speaker",
-                model_client=model_client,
+                model_client=model_qwenplus,
                 model_context=BufferedChatCompletionContext(buffer_size=12),
                 tools=[],
                 system_message="""
@@ -338,7 +353,7 @@ async def create_psychological_flow(ARCHETYPE_CN: str, ARCHETYPE_EN: str) -> Gra
     - 你只与来访者Client_Speaker进行对话，Process_Monitor和Conuselor_Supervisor只为你提供要求和建议,供你组织语言，确保你的发言真正回应的是Client_Speaker的发言
     - 参考Process_Monitor的指导，进一步明确当前发言阶段的要求和目标，按照该阶段的目标设计或组织你的发言，但你只参考“咨询师发言要求”，不要参考“来访者发言要求”中的任何内容
     - 参考Conuselor_Supervisor的建议，生成你的最终发言内容，特别是在【问题洞察与探索阶段】引入结构化提问,在【治疗与干预阶段】使用必要的疏导和干预操作
-    - 若Counselor_Supervisor的建议中涉及对来访者进行安全干预相关的内容，特别是已经给出【高危】预警的情况或明确指示咨询师发言要进行安全干预的情况，你务必优先陈述安全干预或疏导的相关内容，给出安全支持资源，再考虑继续向来访者探讨具体心理问题
+    - 若Counselor_Supervisor的建议中涉及对来访者进行安全干预相关的内容，特别是已经给出【高危】预警的情况或明确指示咨询师发言要进行安全干预的情况，你务务必优先陈述安全干预或疏导的相关内容，给出安全支持资源，再考虑继续向来访者探讨具体心理问题
     - 在【治疗与干预阶段】注重结合已进行的深度交流来帮来访者疏导和解决心理问题，以及结合Counselor_Supervisor所给出的干预建议，但不要只针对来访者的情绪给出稳定情绪的技巧
     - 控制你的发言满足如下必要的发言限制并做到避免幻觉
 
@@ -367,7 +382,7 @@ async def create_psychological_flow(ARCHETYPE_CN: str, ARCHETYPE_EN: str) -> Gra
 
     Process_Monitor = AssistantAgent(
                 name="Process_Monitor",
-                model_client = model_client,
+                model_client = model_deepseek,
                 tools=[],
                 model_context=BufferedChatCompletionContext(buffer_size=84),
                 system_message="""
@@ -438,7 +453,7 @@ async def create_psychological_flow(ARCHETYPE_CN: str, ARCHETYPE_EN: str) -> Gra
 
     Summary_Writer = AssistantAgent(
                 name="Summary_Writer",
-                model_client = model_client,
+                model_client = model_qwen3_32B,
                 tools=[],
                 system_message="""
     # 角色定位
@@ -580,10 +595,7 @@ async def create_psychological_flow(ARCHETYPE_CN: str, ARCHETYPE_EN: str) -> Gra
     return flow, client_memory
 
 
-async def main(ARCHETYPE_CN: str, ARCHETYPE_EN: str, item: dict, save_dir_path: str) -> None:
-
-    # setup_autogen_logging()
-    # print("✅ AutoGen log enabled，detailed logs will be saving to ./autogen_logs/")
+async def main(ARCHETYPE_CN: str, ARCHETYPE_EN: str, item: dict, save_dir_path: str, knowledge_dir: str) -> None:
 
     conversations = item.get('conversations')
     assert conversations is not None
@@ -598,9 +610,12 @@ async def main(ARCHETYPE_CN: str, ARCHETYPE_EN: str, item: dict, save_dir_path: 
         task_str += conv_str+'\n'
 
     item_id = item.get('id')
+    
+    # 记录原始stdout，防止串行执行时后续输出全进第一个日志
+    original_stdout = sys.stdout
     log_file = redirect_output(ARCHETYPE_EN, save_dir_path, item_id)
 
-    flow, client_memory = await create_psychological_flow(ARCHETYPE_CN, ARCHETYPE_EN)
+    flow, client_memory = await create_psychological_flow(ARCHETYPE_CN, ARCHETYPE_EN, knowledge_dir)
 
     task = task_str
 
@@ -615,11 +630,7 @@ async def main(ARCHETYPE_CN: str, ARCHETYPE_EN: str, item: dict, save_dir_path: 
             time_1 = time.time()
             # get the Client_Profiler's output, add to the memory of Client_Speaker
             if (not profiler_saved_to_memory) and hasattr(message, "source") and message.source == "Client_Profiler":
-                # distinguish Thought Event
-                if message.models_usage == None:
-                    print('This is thought event')
-                else:
-                    print('This is profiler result')
+                if message.models_usage is not None:
                     try:
                         await client_memory.add(MemoryContent(
                             content=f"=== 来访者人物画像（由Client_Profiler生成） ===\n{message.content}\n=== 画像结束 ===",
@@ -633,7 +644,6 @@ async def main(ARCHETYPE_CN: str, ARCHETYPE_EN: str, item: dict, save_dir_path: 
 
             if hasattr(message, 'source') and hasattr(message, 'content'):
                 print(f"\n[{message.source}]: {message.content}")
-                print('Time cost:', time_1 - time_0)
 
                 agent_time = message.source
                 if agent_time not in agent_time_totals:
@@ -642,8 +652,6 @@ async def main(ARCHETYPE_CN: str, ARCHETYPE_EN: str, item: dict, save_dir_path: 
                     }
                 agent_time_totals[agent_time]['time_cost'] += (time_1 - time_0)
 
-                # print(message)
-
             messages.append(message)
             
             # collect token usage
@@ -651,7 +659,6 @@ async def main(ARCHETYPE_CN: str, ARCHETYPE_EN: str, item: dict, save_dir_path: 
                 usage = message.models_usage
 
                 total = usage.prompt_tokens + usage.completion_tokens
-                print(f"  💰 Token usage: prompt={usage.prompt_tokens}, completion={usage.completion_tokens}, total={total}")
                 
                 agent = message.source
                 if agent not in agent_totals:
@@ -690,29 +697,21 @@ async def main(ARCHETYPE_CN: str, ARCHETYPE_EN: str, item: dict, save_dir_path: 
         
         print(f"\n=== Total ===")
         print(f"All Agent Total Token: {total_all_tokens}")
-    except:
-        print(item_id, ' Process Error!')
-
-
-    log_file.close()
+    except Exception as e:
+        print(item_id, ' Process Error:', e)
+    finally:
+        # 恢复stdout，关闭文件
+        sys.stdout = original_stdout
+        log_file.close()
 
     flow = None
     client_memory = None
 
 
-    # Close the connection to the model client.
-    # await model_deepseekv3.close()
-    # await model_doubao16flash.close()
-    # await model_glm41VflashX.close()
-    # await model_qwenplus.close()
-    # await model_qwenours.close()
+def run_one(item, save_dir, knowledge_dir, ARCHETYPE_EN2CN):
 
-
-def run_one(args_tuple):
-
-    (item, save_dir, ARCHETYPE_EN2CN) = args_tuple
-
-    disorder = item.get('disorder')
+    disorder = item.get('disorder', '')
+        
     disorder = disorder.strip('【】').split(',')[0]
     if disorder == '回避型人格':
         ARCHETYPE_EN = 'Avoidant'
@@ -742,7 +741,8 @@ def run_one(args_tuple):
             ARCHETYPE_CN=ARCHETYPE_EN2CN[ARCHETYPE_EN],
             ARCHETYPE_EN=ARCHETYPE_EN,
             item=item,
-            save_dir_path=save_dir
+            save_dir_path=save_dir,
+            knowledge_dir=knowledge_dir
         ))
         return {"id": item.get("id"), "status": "ok"}
     except Exception as e:
@@ -751,19 +751,22 @@ def run_one(args_tuple):
 
 if __name__ == "__main__":
 
-
-    parser = argparse.ArgumentParser(description='心理咨询对话生成程序')
+    parser = argparse.ArgumentParser(description='Generate psychological dialogues')
+    parser.add_argument('--seed_path',
+                       type=str,
+                       default='./DataSeed.json',
+                       help='path to the seed data file')
     parser.add_argument('--save_dir',
                        type=str,
-                       default='/home/DataSets/Psy_Data/Results/',
-                       help='dir to save the generated data')
+                       default='./Results/',
+                       help='dir to save the generated logs')
+    parser.add_argument('--knowledge_dir',
+                       type=str,
+                       default='./psy_knowledge/',
+                       help='dir containing the psychological knowledge txt files')
     parser.add_argument('--max_case',
                        type=int,
                        default=1)
-    parser.add_argument('--workers',
-                       type=int,
-                       default=10,
-                       help='num of parallel workers')
     args, unparsed = parser.parse_known_args()
 
     ARCHETYPE_EN2CN = {
@@ -779,32 +782,20 @@ if __name__ == "__main__":
         "Schizoid" : "类分裂样"
     }
 
-    whole_seed_file = '/home/DataSets/Psy_Data/DataSeed_classified.json'
-    # with open(whole_seed_file, 'r+', encoding='utf-8') as f:
-    #     data = json.load(f)
-    #     random.shuffle(data)
-
+    print(f"Reading seed data from {args.seed_path}...")
+    with open(args.seed_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
 
     # limit the max_case in a running time (if necessary)
     # if args.max_case is not None and args.max_case > 0:
     #     data = data[:args.max_case]
 
-
-    print('Working with ', args.workers, ' workers')
     results = []
-    with ProcessPoolExecutor(max_workers=args.workers) as pool:
-        futures = []
-        for item in data:
-            futures.append(pool.submit(run_one, (item, args.save_dir, ARCHETYPE_EN2CN)))
+    
+    for item in tqdm(data, desc="Processing..."):
+        result = run_one(item, args.save_dir, args.knowledge_dir, ARCHETYPE_EN2CN)
+        results.append(result)
+        if result.get('status') == 'error':
+            print(f"\\n[Error] Failed on item {item.get('id')}: {result.get('error')}")
 
-        for f in tqdm(as_completed(futures), total=len(futures), desc="Working in parallel"):
-            try:
-                results.append(f.result())
-                if result.get('status') == 'error':
-                    print(result)
-            except Exception as e:
-                results.append({"id": None, "status": "error", "error": str(e)})
-
-    # print(results)
-
-    print("All Done!")
+    print("\\nAll Done! Results saved to:", args.save_dir)
