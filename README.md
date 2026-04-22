@@ -20,4 +20,6 @@ Existing psychological counseling datasets often suffer from monolithic client p
 - Detailed usage instruction
 
 ## Contact
-For questions or issues, please open an issue in this repository
+💡 **Repository Notice**
+To better serve the research community and centralize all updates, issues, and future releases, our team is actively maintaining the organizational repository at:
+👉 *https://github.com/cccvl/PsyChain*
